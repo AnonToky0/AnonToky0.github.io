@@ -649,3 +649,35 @@ String username = intent.getStringExtra("username");
 - 用于隐式 Intent 的匹配。
 - 在 AndroidManifest.xml 或代码中注册。
 - 定义组件能响应哪些 Action、Category、Data。
+
+## Activity 和 Service 如何通信
+1. 使用Intent 启动Service 传递数据
+- Activity启动Service时通过Intent携带数据
+- Service 在 onStartCommand()中接收Intent。
+- 适合单向传递，数据量小
+
+2. 绑定Service
+- Activity 调用`bindService()`绑定Service
+- Service 提供binder对象，Activity通过Binder调用Service中的方法，实现双向通信
+- 适合需要频繁交互、实时通信。
+
+3. Messenger
+- Messenger 是基于 Handler 的消息机制，适合跨进程通信。
+- Activity 和 Service 各自持有 Messenger，通过 Message 发送数据。
+- 异步通信，比较安全
+
+4. BroadcastReceiver
+- Service 发送广播，Activity 注册广播接收器监听。
+- 适合广播通知，松耦合通信。
+- 注意 Android 8.0+ 对后台广播的限制。
+
+5. EventBus/ Rxjava
+第三方库简化组件间通信。
+
+当Service 后台完成任务，想要通知Activity，依据不同的通信方式，可以：  
+- Activity注册对应广播，在onReceive中做对应处理
+- bindService()
+    - Activity 通过 bindService() 绑定 Service，获得 Service 的 Binder 对象。
+    - Service 定义一个回调接口（Listener），Activity 实现该接口并传给 Service。
+    - Service 完成任务后，通过回调接口通知 Activity。
+    - Activity 在回调中更新 UI。
