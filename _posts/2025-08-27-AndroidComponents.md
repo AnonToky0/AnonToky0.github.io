@@ -681,3 +681,169 @@ String username = intent.getStringExtra("username");
     - Service 定义一个回调接口（Listener），Activity 实现该接口并传给 Service。
     - Service 完成任务后，通过回调接口通知 Activity。
     - Activity 在回调中更新 UI。
+
+## CI/CD
+CI (持续集成，Continuous Integration)
+CD (持续交付/持续部署，Continuous Delivery/Continuous Deployment)
+
+安卓开发CI/CD的目标
+- 自动化构建APK或AAB包
+- 自动运行单元测试和UI测试，保证代码质量
+- 自动生成测试报告和代码覆盖率报告
+- 自动进行代码扫描（安全、质量检查）
+- 自动发布到测试环境（如内测渠道）或应用商店
+- 提升开发效率，减少人为失误，快速反馈
+
+### 工作流主要步骤
+1. 代码提交（Commit）
+开发者将代码推送到代码仓库（如GitHub、GitLab、Bitbucket）。
+2. 触发构建
+代码仓库触发CI系统（Jenkins、GitHub Actions、GitLab CI等）自动启动构建流程。
+3. 环境准备
+CI环境安装Android SDK、构建工具、依赖库。
+- CI环境，指的是GitLab Runner运行任务的执行环境，也就是流水线中实际执行构建、测试脚本的机器或容器。  
+是专门用来自动执行CI/CD任务的环境，通常是服务器、虚拟机或容器(比如Docker)。
+4. 代码编译
+使用Gradle构建工具编译代码，生成APK或AAB包。
+5. 自动化测试
+单元测试（JUnit、Mockito等）
+UI测试（Espresso、UI Automator）
+静态代码分析（Lint、SonarQube）
+安全扫描（如依赖漏洞扫描）
+6. 测试结果反馈
+将测试结果、代码覆盖率报告发送给开发团队，若失败则阻止后续操作。
+7. 打包与签名
+自动完成应用签名，生成正式或测试版本。
+8. 发布
+自动上传到测试平台（Firebase App Distribution、TestFlight、蒲公英等）
+9. 通知团队
+通过邮件、Slack、钉钉等渠道通知构建和发布状态。
+
+### Gitlabd 配置步骤
+1. 创建 .gitlab-ci.yml文件
+位于项目根目录下，定义流水线的阶段和任务
+
+2. 定义`Stages`(阶段)
+``` yml
+stages:
+  - build
+  - test
+  - deploy
+```
+
+3. 定义Jobs(任务)
+每个Job属于某个`Stage`，描述任务执行的脚本和环境。
+
+### 灰度测试
+将新版本软件逐步、分批次地推送给部分用户，而不是一次性全部用户都升级。
+- 只对部分用户（如VIP用户、内部员工、特定地域用户）开放新功能。
+- 逐步增加访问新版本的用户比例，比如先1%，再5%，再20%，直到100%。
+- 在特定时间段内只开放给部分用户。
+- 针对特定设备型号或渠道用户推送新版本。
+
+## 编译构建流程
+
+## UI 绘制流程
+主要分为三个阶段：
+- 测量（Measure）：确定View及其子View的尺寸（宽高）
+- 布局（Layout）：确定View及其子View的位置（坐标）
+- 绘制（Draw）：将View内容绘制到屏幕上
+
+对应的方法分别是：
+- measure(int widthMeasureSpec, int heightMeasureSpec)
+- layout(int left, int top, int right, int bottom)
+- draw(Canvas canvas)
+
+### 测量
+当 View 需要确定自身大小时（比如首次显示，或者父 View 尺寸变化时），系统会调用 measure() 方法。  
+- 计算当前View的宽度和高度
+- 递归测量所有子View，确定整个视图树的尺寸需求
+
+- 流程：
+1. 调用 measure(widthMeasureSpec, heightMeasureSpec)
+widthMeasureSpec 和 heightMeasureSpec 是由父View传入的测量规格，包含尺寸和模式（MeasureSpec）。
+- 尺寸：具体的尺寸值
+- 模式：
+    - EXACTLY：精确大小，View 必须是这个尺寸。
+    - AT_MOST：最大尺寸，View 不能超过这个尺寸。
+    - UNSPECIFIED：不限制大小，View 可以是任意大小。
+    尺寸（Size）：具体的尺寸值。
+
+2. View根据MeasureSpec计算自身大小
+- 调用 onMeasure(int widthMeasureSpec, int heightMeasureSpec)，子类重写该方法来自定义测量逻辑。
+- 自己决定宽高（调用 setMeasuredDimension(width, height)）
+- 对于ViewGroup，会遍历所有子View，调用它们的measure方法，收集子View的尺寸信息
+
+## 布局流程
+- 确定View在父容器中的位置（坐标范围）
+- 递归对子View进行布局
+核心方法：
+``` java
+View.layout(int l, int t, int r, int b)
+```
+分别是 View 在父容器中的左、上、右、下坐标。
+- layout() 会调用 onLayout(boolean changed, int left, int top, int right, int bottom)。
+- 对于普通 View，onLayout() 通常不需要重写。
+- 对于 ViewGroup，onLayout() 需要重写，负责对子 View 进行定位
+
+## 绘制
+将View内容绘制到屏幕的Canvas上
+
+- 绘制流程
+1. 绘制背景
+调用 drawBackground()，绘制 View 的背景 Drawable。
+2. 绘制内容
+调用 onDraw(Canvas canvas)，由子类重写实现具体绘制内容。
+3. 绘制子 View
+对于 ViewGroup，调用 dispatchDraw(Canvas canvas) 绘制所有子 View。
+4. 绘制前景
+绘制滚动条或其他装饰
+
+### dp
+dp(density-independent pixels，独立像素)是一种根据屏幕密度进行缩放的单位，保证不同屏幕密度设备上显示大小一致。
+dp 和像素(px)的关系
+```
+px = dp*(dpi/160)
+```
+- 其中，`dpi`是屏幕密度(dots per inch)
+- 160 dpi 是基准密度(mdpi)
+
+
+### 像素
+像素是数字图像的最小单位，是构成屏幕显示图像的基本点。
+
+**屏幕分辨率**  
+- 屏幕分辨率通常用像素宽 × 像素高表示，例如 1920×1080 表示宽有1920个像素，高有1080个像素。
+
+- 屏幕密度（dpi或ppi）表示每英寸有多少像素，密度越高，图像越清晰。
+
+#### 屏幕密度
+- ppi(Pixels Per Inch)指屏幕或数字图像的像素密度。
+- dpi(Dots Per Inch)表示打印机每英寸能打印多少墨点。
+- 在数字显示领域，**可以混用**
+
+##### 屏幕密度分类
+在Android开发中，常见的屏幕密度分类有：
+
+| 密度分类 | dpi范围（约） | 说明                |
+|----------|---------------|---------------------|
+| ldpi     | ~120 dpi      | 低密度              |
+| mdpi     | ~160 dpi      | 基准密度（1x）      |
+| hdpi     | ~240 dpi      | 高密度              |
+| xhdpi    | ~320 dpi      | 超高密度            |
+| xxhdpi   | ~480 dpi      | 超超高密度          |
+| xxxhdpi  | ~640 dpi      | 极高密度            |
+
+例子：
+- 320×480 分辨率的设备通常是早期的 mdpi 设备，dpi 约为160。
+- 1280×720 分辨率的设备一般是 xhdpi 设备，dpi 约为320。
+
+##### 准确计算dpi的方法
+dpi（dots per inch）是指每英寸的像素数，计算公式是：
+
+\[
+dpi = \frac{\sqrt{(宽像素)^2 + (高像素)^2}}{屏幕对角线尺寸（英寸）}
+\]
+
+- **宽像素**和**高像素**是屏幕的分辨率
+- **屏幕对角线尺寸**是设备屏幕的物理尺寸，单位为英寸(inch)

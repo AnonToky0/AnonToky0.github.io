@@ -128,25 +128,35 @@ TCP(Transmission Control Protocol)传输控制协议，位于传输层。是面�
 		常见的拥塞控制算法包括慢启动、拥塞避免、快速重传、快速恢复
 #### 三次握手
 三次握手的目的是在客户端和服务端建立双向连接，确认彼此的发送和接收能力。(SYN: Synchronize)
-- 第一次握手(SYN)：客户端->服务端  
-	发送SYN包，序列号初始化 seq=x;
-- 第二次握手(SYN—ACK):服务器->客户端
+1. 第一次握手(SYN)：客户端->服务端  
+	发送SYN包，序列号初始化 seq=x， 进入SYN_SEND状态
+2. 第二次握手(SYN—ACK):服务器->客户端。(ACK: Acknowledgment)
 	- 服务器响应SYN-ACK包
 	- 确认接收到客户端的SYN包，并发送自己的连接请求
 	- 确认号:ack=x+1
 	- 服务器的序列号初始化 seq=y
-- 第三次握手(ACK)：客户端->服务器
-	- 客户端发送ACK包
+	- 服务端进入SYN_RECV状态
+3. 第三次握手(ACK)：客户端->服务器
+	- 客户端接受到服务端的ACK, SYN报文。
+	- 客户端发送ACK包确认服务端的SYN报文，ack=y+1
 	- 客户端确认接收到服务器的SYN-ACK包，连接建立完成
 	- 发送ACK确认收到连接, Ack=y+1, 序列号更新为x+1
+- 客户端和服务器端进入ESTABLISHED状态，完成TCP三次握手
+
+- 为什么需要第三次握手？
+	- 确认服务端的SYN报文已被客户端接收
+	- 如果客户端没有发送第三次握手的确认，服务器会重发第二次握手报文，客户端也会重发第三次握手报文，直到超时。
+	- TCP 是全双工通信，连接是双向的，双方都需要确认对方收到了自己的初始序列号，才能开始可靠的数据传输。	
 		
 #### 四次挥手
 四次挥手用于安全地终止一个TCP连接，确保双方都完成了数据传输,并释放资源
 1. 主动关闭方发送FIN seq=u
 2. 被动关闭方发送ACK Ack=u+1
 3. 被动关闭方发送FIN seq=v
-4. 主动关闭方发送ACK，并进入TIME_WAIT状态等待2MSL(Maximum Segment Lifetime)时间
-	作用是：确保被动关闭方收到ACK, 确保所有旧的重复报文段在网络中消失，避免干扰新的连接
+4. 主动关闭方发送ACK，并进入TIME_WAIT状态等待 2 MSL(Maximum Segment Lifetime)时间
+	作用是：确保被动关闭方收到ACK(如果最后的ACK丢失，被动关闭方会重发FIN报文), 确保所有旧的重复报文段在网络中消失，避免干扰新的连接
+> MSL 表示 一个 TCP 报文段在网络中存在的最长时间, 即报文段从发送到被丢弃或失效所经历的最大时间, 典型值是120秒。
+> 第一个MSL确保所有旧报文段消失，第二个MSL保证重传的FIN报文段能被接收并得到ACK。
 
 #### TCP头部格式
 ```
@@ -341,15 +351,6 @@ AIMD算法：TCP拥塞控制的核心思想可以被归纳为AIMD
 		若是HTML类型，进入下一步渲染
 	6. 浏览器解析HTML文件，创建DOM，解析CSS, 将DOM和CSS合并，构建渲染树
 	
-2. 三次握手的过程
-	1. 客户端向服务器发送SYN报文，初始化序列号 seq=x，然后进入SYN_SEND状态
-	2. 服务端发送ACK确认SYN报文，ack=x+1, 同时发出SYN报文, 和自己的初始化序列号 seq=y。 服务端进入SYN_RECV状态
-	3. 客户端接受到服务端的ACK, SYN报文。
-		发送ACK确认服务端的SYNC报文 ack=y+1。
-		然后客户端和服务器端进入ESTABLISHED状态，完成TCP三次握手
-	
-	需要通过三次握手保证双方都具有接收和发送的能力。
-	
 3. 四次挥手的过程
 	1. 客户端发送一个FIN报文， 报文中会指定一个序列号seq=x。 客户端进入FIN-WAIT-1状态
 	2. 服务端收到FIN报文后，回复ACK报文给客户端， ACK: seq=x+1。服务端进入CLOSE_WAIT状态
@@ -372,5 +373,41 @@ AIMD算法：TCP拥塞控制的核心思想可以被归纳为AIMD
 	TCP用于要求通信数据可靠场景(网页、文件传输、登录、数据库)
 	UDP要求通信高速(直播、实时游戏)
 	
+## WebSocket
+WebSocket是一种网络通信协议，设计用于在单个TCP连接上进行全双工(双向)通信。简单来说：
+- WebSocket允许客户端和服务器之间建立一个持久的连接
+- 连接建立后，双方可以随时发送消息，不必为每次通信都重新建立连接
+- 适合需要实时双向数据交换的应用，如聊天、游戏、金融行业推送等
 
-	
+### 工作原理
+1. 建立连接(握手阶段)
+客户端发起HTTP请求，请求头包含特殊字段，表示想升级协议到WebSocket:
+```
+GET /chat HTTP/1.1
+Host: example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==
+Sec-WebSocket-Version: 13
+```
+服务器响应并同意升级协议
+```
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: HSmrc0sMlYUkAGmm5OPpG2HaGWk=
+```
+
+2. 数据传输阶段
+- 连接建立后，客户端和服务器可以随时互相发送消息。
+- 数据以"帧(frame)"的形式发送，支持文本和二进制数据。
+- 连接保持打开状态，直到一方主动关闭。
+
+3. 关闭连接
+- 任何一方都可以发送关闭帧，关闭连接。
+- 连接关闭后，双方释放资源。
+
+- WebSocket默认端口和HTTP(80)或HTTPS(443)一致。
+
+
+
