@@ -25,8 +25,8 @@ Android系统应用层框架为开发者提供了四大组件便于开发，分�
 
 在应用程序安装时，应用安装程序通过`PackageInstaller`服务解析应用安装包，并将`AndroidManifest.xml`中声明的四大组件信息保存到`PackageManagerService`中
 
-### 什么是Content
-Content是关于APP环境的全局信息接口，是一个抽象类，实现都是由系统类实现的。Content允许访问APP特定的资源和类，如：
+### 什么是Context
+Context是关于APP环境的全局信息接口，是一个抽象类，实现都是由系统类实现的。Context允许访问APP特定的资源和类，如：
 - 资源管理器AssetsManager、
 - 包管理器PackageManager、
 - 文本图片主题资源Resource、
@@ -43,8 +43,12 @@ Context的实现类为ContextImpl，ContextImpl为Activity或其他应用程序�
 除了ContextImpl类外，ContextWrapper类也继承了Context，但是ContextWrapper类并不自己实现Context的方法，而是通过构造方法，代理给另外一个Context的实现。**代理模式**。这样ContextWrapper的子类就可以在不修改ContextWrapper类的情况下，修改其调用方法的实现。
 > 这里说的另一个Context指的是ContextWrapper通过构造函数传入一个具体的 Context 实例（例如 ContextImpl 或其他 Context 的子类实例）
 
-在开发中用到的Activity、Application、Service类都是集成自ContextWrapper类。在构建出实例后，通过ContextWrapper的attachBaseContext(Context)方法，将真正的Context实现类添加进去。这样就可以动态控制Activity、Application、Service类调用Context的方法实现。
-例如：
+在开发中用到的Activity、Application、Service类都是集成自ContextWrapper类。  
+一个App主进程中`context`对象的实例个数，除了`Application`,`Activity`,`Service`等，可能还有创建基于 `ContextWrapper` 的 Context 实例，比如 `ContextThemeWrapper`、`ContextWrapper` 本身的实例。  
+> 请注意：四大组件不是都继承自context， BroadcastReceiver 直接继承自 `android.content.BroadcastReceiver`，ContentProvider 继承自 `android.content.ContentProvider`
+
+在构建出实例后，通过ContextWrapper的attachBaseContext(Context)方法，将真正的Context实现类添加进去。这样就可以动态控制Activity、Application、Service类调用Context的方法实现。例如：
+
 ``` java
 public class MyActivity extends Activity {
     @Override
@@ -101,12 +105,12 @@ ActivityThread 实例化四大组件存在以下问题：
 
 ## Application
 Application 是 Android 应用程序的入口类，它代表整个应用程序的全局状态和环境。
-- 系统启动应用时，会先创建 Application 类的实例
+- 系统启动应用时，会先创建 Application 类的实例。一个Android应用的主进程中，Application对象只有**一个实例**。
 - Application 生命周期贯穿整个应用进程的生命周期，通常用于：
     - 初始化全局资源（比如单例、数据库、网络库）
     - 保存全局状态
     - 监听应用级别的生命周期事件（比如前后台切换）
-
+- 多进程情况下，每个进程有**各自独立**的Application实例。
 #### Application.attach()
 主要用于:
 - 绑定 Application 对象和应用的主线程（ActivityThread）；
@@ -140,15 +144,15 @@ attach() 负责把 Activity 这个 Java 对象与系统底层的各种服务和�
 ### Activity生命周期
 主要包括以下几个阶段，每个阶段对应一个或多个回调方法
 
-| 生命周期状态        | 典型回调方法               | 说明                             |
-|---------------------|----------------------------|----------------------------------|
-| **创建**            | `onCreate()`               | 初始化界面和数据                   |
-| **启动**            | `onStart()`                | Activity 即将对用户可见            |
-| **恢复（运行）**     | `onResume()`               | Activity 进入前台，用户可以交互    |
-| **暂停**            | `onPause()`                | Activity 失去焦点，但仍部分可见    |
-| **停止**            | `onStop()`                 | Activity 完全不可见                |
-| **重启**            | `onRestart()`              | Activity 从停止状态重新启动        |
-| **销毁**            | `onDestroy()`              | Activity 被销毁，释放资源          |
+| 生命周期状态    | 典型回调方法         | 说明                  |
+|---------------|----------------------|------------------------------|
+| **创建**       | `onCreate()`       | 初始化界面和数据                   |
+| **启动**       | `onStart()`        | Activity 即将对用户可见            |
+| **恢复（运行）**     | `onResume()`     | Activity 进入前台，用户可以交互    |
+| **暂停**      | `onPause()`       | Activity 失去焦点，但仍部分可见    |
+| **停止**      | `onStop()`         | Activity 完全不可见                |
+| **重启**      | `onRestart()`        | Activity 从停止状态重新启动        |
+| **销毁**       | `onDestroy()`      | Activity 被销毁，释放资源          |
 
 #### onCreate(Bundle savedInstanceState)
 - 调用时机：Activity 第一次创建时调用。
@@ -290,8 +294,36 @@ AMS 的辅助类，负责处理启动 Activity 的具体逻辑。
 AMS 与客户端进程之间用来标识和操作特定 ActivityRecord 的标记。
 - 双方通过传递 Token 来确认操作的是哪个 Activity。
 
-### Activity启动模式标志（Flags）
-这些 Flags 主要用于控制 Activity 启动时的行为，影响 Activity 在任务栈（Task）中的管理方式。
+### LaunchMode
+`launchMode` 是 `AndroidManifest.xml` 中 `<activity>` 标签的一个属性，用来控制启动 Activity 时系统如何创建和管理该 Activity 实例及其所在的任务栈（Task）。  
+Android 一共有四种 LaunchMode:
+- standard（默认）
+- singleTop
+- singleTask
+- singleInstance
+
+1. standard
+- 每次启动该 Activity，系统都会创建一个新的实例，放入当前任务栈的栈顶。
+- 不管当前任务栈中是否已有该 Activity 的实例，都会新建一个。
+2. singleTop
+- 如果当前任务栈的栈顶已经是该 Activity 的实例，那么不会重新创建新的实例，而是复用栈顶的这个实例，调用它的 onNewIntent() 方法。
+- 如果栈顶不是该 Activity，则会创建新的实例放入栈顶。  
+- 适用场景：通知栏点击打开的 Activity，避免重复创建。
+3. singleTask
+- 系统会检查整个任务栈中是否已经存在该 Activity 的实例。
+- 如果存在，则将该 Activity 之上的所有 Activity 弹出（销毁），并复用该 Activity 的实例，调用 onNewIntent()。
+- 如果不存在，则新建一个实例，并放入**新的任务栈**的栈顶。
+该 Activity 总是作为任务栈的根（栈底）Activity。
+- 全局只有一个该 Activity 实例。
+- 适用场景：比如启动主界面 Activity，或者某些需要单例的界面。
+4. singleInstance
+- 该 Activity 独占一个任务栈，启动它会创建一个新的任务栈。当启动Acitivity时如果实例存在，会复用该实例，并通过 onNewIntent() 传递新的 Intent。
+- 其他 Activity 不会加入这个任务栈。
+- 全局只有一个该 Activity 实例。
+
+
+### Activity启动模式标志(Flags)
+这些 Flags 在代码中启动 Activity 时动态传入的标志，用来临时改变启动行为。启动时 Intent 中的 flags 优先级**高于** launchMode。
 - FLAG_ACTIVITY_SINGLE_TOP  
     如果要启动的 Activity 已经位于当前任务栈的栈顶（top），则不会重新创建新的实例，而是复用栈顶的 Activity，调用它的 onNewIntent() 方法。
     - 示例：  
@@ -306,6 +338,13 @@ AMS 与客户端进程之间用来标识和操作特定 ActivityRecord 的标记
     启动 Activity 时，如果目标 Activity 已经存在于任务栈中，则将其之上的所有 Activity 出栈，并调用目标 Activity 的 onNewIntent()。
 - FLAG_ACTIVITY_REORDER_TO_FRONT  
     当启动的 Activity 已经存在于当前任务栈中（但不一定在栈顶），系统会将该 Activity 移动到栈顶，而不是创建新的实例。
+
+### 复用情况下的声明周期
+
+| 情况    | 调用的方法   | 说明            |
+|--------------|------------------------|----------------------|
+| **新建 Activity**   | `onCreate()` → `onStart()` → `onResume()` | Activity 实例第一次创建时调用    |
+| **复用已有实例（如 singleTop）** | `onNewIntent(Intent intent)` → `onRestart()`（如果之前停止） → `onStart()` → `onResume()` | 复用实例且收到新 Intent 时调用 |
 
 #### AMS启动流程
 综上，启动流程大致为：
@@ -786,7 +825,7 @@ View.layout(int l, int t, int r, int b)
 - 对于普通 View，onLayout() 通常不需要重写。
 - 对于 ViewGroup，onLayout() 需要重写，负责对子 View 进行定位
 
-## 绘制
+### 绘制
 将View内容绘制到屏幕的Canvas上
 
 - 绘制流程
@@ -799,7 +838,7 @@ View.layout(int l, int t, int r, int b)
 4. 绘制前景
 绘制滚动条或其他装饰
 
-### dp
+## dp
 dp(density-independent pixels，独立像素)是一种根据屏幕密度进行缩放的单位，保证不同屏幕密度设备上显示大小一致。
 dp 和像素(px)的关系
 ```
@@ -840,10 +879,64 @@ px = dp*(dpi/160)
 
 ##### 准确计算dpi的方法
 dpi（dots per inch）是指每英寸的像素数，计算公式是：
-
-\[
-dpi = \frac{\sqrt{(宽像素)^2 + (高像素)^2}}{屏幕对角线尺寸（英寸）}
-\]
-
+```
+dpi = sqrt((宽像素)^2 + (高像素)^2) / 屏幕对角线尺寸（英寸）
+```
 - **宽像素**和**高像素**是屏幕的分辨率
 - **屏幕对角线尺寸**是设备屏幕的物理尺寸，单位为英寸(inch)
+
+## Handler
+[参考](https://blog.csdn.net/JMW1407/article/details/121966563)
+Handler 是 Android 中用于处理线程间通信和消息调度的一个工具类, 与 Looper 和 MessageQueue 一起工作，主要作用是：
+- 在特定线程中执行代码（通常是主线程，也称 UI 线程）
+- 处理消息和 Runnable 任务的排队和执行
+
+### 核心组成
+- Looper：线程的消息循环器，负责循环读取消息队列中的消息并分发。
+- MessageQueue：消息队列，存储等待处理的消息和任务。
+- Handler：发送消息和任务到消息队列，并负责接收和处理消息。
+
+### 工作原理
+- 每个线程可以有一个 Looper（主线程默认有）。
+- Handler 绑定到某个线程的 Looper，通过它将消息和任务放入该线程的消息队列。
+- 线程的 Looper 循环读取消息队列，取出消息，调用对应的 Handler 的 handleMessage() 方法进行处理。
+- 通过这种机制，实现了线程间通信和异步任务调度。
+
+### 常见用法
+1. 创建
+
+``` java
+// 默认绑定当前线程的 Looper（主线程中创建即绑定主线程）
+Handler handler = new Handler(Looper.getMainLooper()) {
+    @Override
+    public void handleMessage(Message msg) {
+        // 处理消息
+    }
+};
+```
+
+2. 发送消息
+
+``` java
+Message msg = Message.obtain();
+msg.what = 1;
+handler.sendMessage(msg);
+```
+
+3. 发送延时任务
+
+``` java
+handler.postDelayed(new Runnable() {
+    @Override
+    public void run() {
+        // 延时执行的代码
+    }
+}, 1000); // 1秒后执行
+```
+
+### 典型应用场景
+- 在子线程中向主线程发送消息，更新 UI
+- 定时执行任务（如轮询、动画）
+- 线程间通信，避免直接操作 UI 导致异常
+- 实现消息机制，解耦代码
+
