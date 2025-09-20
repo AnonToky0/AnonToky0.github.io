@@ -1,8 +1,8 @@
 ---
 title: "链表"
 date: 2025-08-26 17:28:00 +0800
-categories: [链表]
-tags: [链表]
+categories: [数据结构与算法]
+tags: [链表，数据结构]
 ---
 
 ## Definition

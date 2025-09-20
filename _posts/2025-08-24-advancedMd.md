@@ -1,8 +1,8 @@
 ---
 title: "Markdown进阶语法"
 date: 2025-08-24 18:00:00 +0800
-categories: [分类1, 分类2]
-tags: [标签1, 标签2]
+categories: [Markdown]
+tags: [Markdown]
 ---
 摘录自：[Markdown教程](https://markdown.com.cn/basic-syntax)
 
