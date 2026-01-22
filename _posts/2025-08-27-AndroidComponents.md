@@ -445,6 +445,29 @@ startService(Intent service) 是 Android 中启动 服务(Service) 的一种方�
 - 调用 Service 的 onStartCommand 方法，传入启动参数。
 - 客户端调用完成后，通知 AMS 操作完成，AMS 收到后会移除超时消息。
 
+## startService生命周期
+1. `onCreate()`
+- 调用时机：服务第一次被创建时调用
+- 作用：进行一次初始化操作
+
+2. `onStartCommand(Intent intent, int flags, int startId)`
+- 调用时机：每次通过`startService`启动服务时都会调用
+- 作用：处理启动请求，执行具体任务
+- 返回值：控制服务被杀死后系统的重启行为，常见返回值包括：
+    - `START_NOT_STICKY`：服务被杀死后，不重启
+    - `START_STICKY`：服务被杀死后，系统尝试重启服务，但不传递原始Intent
+    - `START_REDELIVER_INTENT`：服务被杀死后，系统重启服务并重新传递最后一个Intent(多次调用 startService(intent) 启动同一个服务时最新的Intent)
+
+3. 服务运行中
+- 服务在后台执行任务，可能会启动线程或定时器等。
+
+4. `onDestroy()`
+- 调用时机：服务被停止时调用
+- 作用：释放资源、停止线程等清理工作
+- 调用方式：
+    - 通过 stopSelf() (服务自身调用) 或 stopService() (启动服务的外部组件调用)停止服务时调用。
+    - 系统在资源紧张时也可能杀死服务，但不会调用 onDestroy()(而是强制杀死进程)。
+
 ### bindService
 #### bindService 和 startService区别
 - startService：
@@ -496,7 +519,41 @@ startService(Intent service) 是 Android 中启动 服务(Service) 的一种方�
     - 调用方的 ServiceConnection()也只会回调一次
 
 ### Service 和 AMS 的调用时序
-<img src="{{ '/assets/img/posts/2025-08-27-AndroidComponents/service_process.png' | relative_url }}" alt="service_process"/>
+<!-- <img src="{{ '/assets/img/posts/2025-08-27-AndroidComponents/service_process.png' | relative_url }}" alt="service_process"/> -->
+
+| 客户端进程           | AMS进程                                  | Service进程
+|----------------------|-------------------------------------|-------------- |
+| 第一次startService   | 记录请求事项，创建目标进程 | 进程创建成功 |
+|                      | 创建目标Service | 回调onCreate方法 |
+|                      | 发送调用参数 | 回调onStartCommand方法 |
+| 第二次startService   | 发送调用参数 | 回调onStartCommand方法 |
+
+| 客户端进程           | AMS进程                                  | Service进程
+|----------------------|-------------------------------------|-------------- |
+| 第一次bindService   | 记录请求事项(Connection)，创建目标进程 | 进程创建成功 |
+|                      | 创建目标Service | 回调onCreate方法 |
+|                      | 绑定目标Service | 回调onBind方法 |
+|                      | 获取并存储目标Service的Binder接口 |              |
+| 回调onServiceConnected |                                 |              |
+| 第二次bindService(不同的ServiceConnection)   | 查询存储的Service Binder接口记录 |     |
+| 回调onServiceConnected |                                   |              |
+| 第二次bindService(相同的ServiceConnection)   | 查询存储的Service Binder接口记录 |     |
+
+> 相同的 ServiceConnection 对象，如果已经绑定成功，再次调用 bindService 并不会重复触发 onServiceConnected。
+
+### bindService生命周期
+bindService允许客户端(通常是Activity)与服务通信。
+
+#### 基本流程
+- 客户调用`bindService`绑定服务
+- 系统调用服务的`onBind`方法，返回一个`IBinder`对象
+- 客户端通过`ServiceConnection`的回调获取`IBinder`，与服务通信
+- 当客户端不再需要服务时，调用`unbindService`解除绑定
+
+#### 服务端流程
+onBind(Intent intent)
+当客户端调用bindService()时触发
+
 
 ## ContentProvider
 用来在不同**应用程序**之间共享数据。如果仅仅是在一个程序中存取数据，可以用`SQLiteDatabase`。
@@ -689,6 +746,83 @@ String username = intent.getStringExtra("username");
 - 在 AndroidManifest.xml 或代码中注册。
 - 定义组件能响应哪些 Action、Category、Data。
 
+### Intent是否可以传递对象
+Android 的 `Intent` 通过 `Bundle` 传递数据，而 `Bundle`支持的数据类型有限。要传递自定义对象，必须让对象实现以下接口之一：
+1. Serializable (Java 标准接口)
+2. Parcelable (Android 推荐接口)
+
+#### 1. 使用Serializable
+``` java
+public class User implements Serializable {
+    private String name;
+    private int age;
+    // 构造方法、getter/setter等
+}
+```
+
+``` java
+Intent intent = new Intent(context, TargetActivity.class);
+User user = new User("Tom", 20);
+intent.putExtra("user_key", user);
+startActivity(intent);
+```
+
+``` java
+User user = (User) getIntent().getSerializableExtra("user_key");
+```
+
+- 优点：简单易用，Java 原生支持
+- 缺点：性能较差，序列化开销较大
+
+#### 2. 使用Parcelable
+
+``` java
+public class User implements Parcelable {
+    private String name;
+    private int age;
+
+    protected User(Parcel in) {
+        name = in.readString();
+        age = in.readInt();
+    }
+
+    public static final Creator<User> CREATOR = new Creator<User>() {
+        @Override
+        public User createFromParcel(Parcel in) {
+            return new User(in);
+        }
+        @Override
+        public User[] newArray(int size) {
+            return new User[size];
+        }
+    };
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeString(name);
+        dest.writeInt(age);
+    }
+}
+```
+
+``` java
+Intent intent = new Intent(context, TargetActivity.class);
+User user = new User("Tom", 20);
+intent.putExtra("user_key", user);
+startActivity(intent);
+```
+
+``` java
+User user = getIntent().getParcelableExtra("user_key");
+```
+
+- 优点：性能优于 Serializable，适合 Android 平台
+- 缺点：需要实现较多模板代码（可借助插件或工具自动生成）
+
 ## Activity 和 Service 如何通信
 1. 使用Intent 启动Service 传递数据
 - Activity启动Service时通过Intent携带数据
@@ -782,8 +916,8 @@ stages:
 
 ## 编译构建流程
 
-## UI 绘制流程
-主要分为三个阶段：
+## 视图渲染(View Rendering) 
+视图渲染指的是将应用界面上的视图（View）及其子视图绘制到屏幕上的过程。它是 UI 显示的核心环节，涉及视图的测量、布局和绘制。
 - 测量（Measure）：确定View及其子View的尺寸（宽高）
 - 布局（Layout）：确定View及其子View的位置（坐标）
 - 绘制（Draw）：将View内容绘制到屏幕上
@@ -793,7 +927,7 @@ stages:
 - layout(int left, int top, int right, int bottom)
 - draw(Canvas canvas)
 
-### 测量
+### 测量（Measure）
 当 View 需要确定自身大小时（比如首次显示，或者父 View 尺寸变化时），系统会调用 measure() 方法。  
 - 计算当前View的宽度和高度
 - 递归测量所有子View，确定整个视图树的尺寸需求
@@ -813,7 +947,7 @@ widthMeasureSpec 和 heightMeasureSpec 是由父View传入的测量规格，包�
 - 自己决定宽高（调用 setMeasuredDimension(width, height)）
 - 对于ViewGroup，会遍历所有子View，调用它们的measure方法，收集子View的尺寸信息
 
-## 布局流程
+## 布局（Layout）
 - 确定View在父容器中的位置（坐标范围）
 - 递归对子View进行布局
 核心方法：
@@ -825,16 +959,16 @@ View.layout(int l, int t, int r, int b)
 - 对于普通 View，onLayout() 通常不需要重写。
 - 对于 ViewGroup，onLayout() 需要重写，负责对子 View 进行定位
 
-### 绘制
+### 绘制（Draw）
 将View内容绘制到屏幕的Canvas上
 
 - 绘制流程
 1. 绘制背景
-调用 drawBackground()，绘制 View 的背景 Drawable。
+调用 `drawBackground()`，绘制 `View` 的背景 `Drawable`。
 2. 绘制内容
-调用 onDraw(Canvas canvas)，由子类重写实现具体绘制内容。
+调用 `onDraw(Canvas canvas)`，由子类重写实现具体绘制内容。
 3. 绘制子 View
-对于 ViewGroup，调用 dispatchDraw(Canvas canvas) 绘制所有子 View。
+对于 `ViewGroup`，调用 `dispatchDraw(Canvas canvas)` 绘制所有子 `View`。
 4. 绘制前景
 绘制滚动条或其他装饰
 
@@ -884,6 +1018,10 @@ dpi = sqrt((宽像素)^2 + (高像素)^2) / 屏幕对角线尺寸（英寸）
 ```
 - **宽像素**和**高像素**是屏幕的分辨率
 - **屏幕对角线尺寸**是设备屏幕的物理尺寸，单位为英寸(inch)
+
+### 位图(Bitmap) 和 矢量图(Vector Graphics)
+Bitmap 是一种用像素点阵列来表示图像的格式，每个像素用一定数目的位（bit）来表示颜色信息。
+矢量图基于数学描述的图像表示方式。
 
 ## Handler
 [参考](https://blog.csdn.net/JMW1407/article/details/121966563)
@@ -940,3 +1078,356 @@ handler.postDelayed(new Runnable() {
 - 线程间通信，避免直接操作 UI 导致异常
 - 实现消息机制，解耦代码
 
+## Button
+
+### OnTouchListener & OnClickListener
+
+| 特性               | OnTouchListener               | OnClickListener       |
+|--------------------|--------------------------------|---------------------------------|
+| 监听的事件类型      | 监听触摸事件（Touch Event），包括按下、移动、抬起等 | 监听点击事件（Click Event），即“按下并抬起”动作 |
+| 方法签名           | `boolean onTouch(View v, MotionEvent event)`      | `void onClick(View v)`                           |
+| 事件粒度           | 低层次，捕获所有触摸动作（ACTION_DOWN、ACTION_MOVE、ACTION_UP 等） | 高层次，专门处理点击（按下并快速抬起） |
+| 返回值             | `boolean`，决定事件是否被消费（`true`表示消费，事件不再传递） | 无返回值，点击事件默认被消费   |
+| 触发时机           | 触摸屏幕时即时触发                                | 当用户完成一次点击（按下并抬起）时触发   |
+| 使用场景           | 需要自定义复杂手势、拖拽、滑动等交互时使用        | 处理简单点击（按钮点击、列表项点击等） |
+
+可以同时设置 OnTouchListener 和 OnClickListener，但需要注意事件传递和消费的关系。  
+- 当设置了 OnTouchListener，并且其 onTouch 方法返回 true，表示事件被消费了，这时 OnClickListener 不会被调用，因为点击事件依赖于触摸事件的传递。
+- 如果 onTouch 返回 false，表示事件没有被完全消费，事件会继续传递，系统会检测是否触发点击事件，从而调用 OnClickListener。
+
+## 语句覆盖法(Statement Coverage)
+语句覆盖法是一种软件测试的**覆盖率度量标准和测试设计准则**。
+
+- 它是一种测试覆盖标准，用来衡量测试用例对程序代码执行的充分程度。
+- 通过语句覆盖率，可以判断测试用例是否执行了程序中的所有语句。
+- 它指导测试人员设计测试用例，确保代码的每条语句至少被执行一次，以发现程序中的潜在错误或死代码。
+
+## resouces
+### string.xml
+#### 字符串资源冲突问题和排查解决方案
+- 在多模块项目中，多个模块的 res/values/strings.xml 文件定义了相同的字符串资源 key。
+- 编译打包时，这些资源会被合并。
+- 运行时，系统会使用合并后资源中某个模块的字符串（通常是最后合并的那个），导致显示的字符串与预期不符。
+- 资源合并顺序通常依赖于模块依赖关系和 Gradle 配置，比较难直接控制。
+
+##### 排查步骤
+1. 确认资源冲突
+- 使用Android Studio的`Find in Path`搜索资源key
+
+2. 查看合并后的资源
+- 在Android Studio的Build视图，找到生成的APK或AAR的资源合并报告。
+- 具体路径一般在 `app/build/intermediates/merged_res`，查看 merged 的 strings.xml，确认最终使用的是哪个模块的字符串。
+
+3. 检查依赖关系
+检查各模块的 build.gradle 中依赖关系，确认模块之间的依赖顺序。
+依赖顺序影响资源合并的覆盖顺序。
+
+## Fragment
+
+### 生命周期
+
+| 生命周期方法           | 说明                                                         |
+|-----------------------|--------------------------------------------------------------|
+| `onAttach(Context)`   | Fragment 与 Activity 关联，获取 Context。只调用一次。          |
+| `onCreate(Bundle)`    | Fragment 创建，初始化非视图相关的数据。                        |
+| `onCreateView(...)`   | 创建并返回 Fragment 的视图层次结构（UI）。                     |
+| `onViewCreated(...)`  | 视图创建完成，进行视图相关初始化，如绑定控件、设置监听。         |
+| `onActivityCreated()` | Activity 的 `onCreate()` 执行完毕，Fragment 可以安全访问 Activity。|
+| `onStart()`           | Fragment 可见但不一定在前台。
+| `onResume()`          | Fragment 处于前台，用户可交互。                               |
+| `onPause()`           | Fragment 不再处于前台，通常用于保存数据或停止动画等。           |
+| `onStop()`            | Fragment 不再可见。                                           |
+| `onDestroyView()`     | 销毁 Fragment 的视图层次结构，释放与视图相关资源。             |
+| `onDestroy()`         | Fragment 完全销毁，释放所有资源。                             |
+| `onDetach()`          | Fragment 与 Activity 解除关联。                               |
+
+结束生命周期的调用顺序： 先销毁视图，再销毁 Fragment 实例，最后解除与 Activity 的绑定。
+
+``` java
+onDestroyView() → onDestroy() → onDetach()
+```
+
+- `onDestroyView()`
+    - 视图被销毁时调用。
+    - 这里释放与视图相关的资源（比如绑定的控件、动画、监听器等）。
+    - Fragment 实例仍然存在，但它的视图层次结构被移除。
+    - 例如，Fragment 进入“后台”或被替换时会调用。
+
+- `onDestroy()`
+    - Fragment 完全销毁前调用。
+    - 释放 Fragment 持有的所有非视图资源（如线程、数据库连接等）。
+    - Fragment 实例即将被销毁。
+
+- `onDetach()`
+    - Fragment 与宿主 Activity 解除关联时调用。
+    - Fragment 不再持有 Activity 的引用。
+    - 这是 Fragment 生命周期的最后一个回调。
+
+### Activity 和 Fragment 通信方式
+`Fragment`通常是嵌入在`Activity`中的UI组件，传递数据或通知事件常见的有以下几种方式。
+
+#### 接口回调
+- Fragment定义一个接口，Activity实现该接口
+- Fragment通过接口调用通知Activity
+- Activity通过调用Fragment的公共方法传递数据
+
+##### 代码示例
+###### Fragment 定义接口
+``` java
+public class MyFragment extends Fragment {
+    // 定义接口
+    public interface OnDataPassListener{
+        void onDataPass(string data);
+    }
+
+    private OnDataPassListener mListener;
+
+    @override
+    public void onAttach(Context context){
+        super.onAttach(context);
+        if (context instanceof OnDataPassListener){
+            mListener = (OnDataPassListener) context;
+        }else{
+            throw new RuntimeException(context.toString() + "must implement OnDataPassListener");
+        }
+    }
+
+    //需要传递数据时调用
+    public void passDataToActivity(){
+        if(mListener != null){
+            mListener.onDataPass("Hello Activity");
+        }
+    }
+
+    // 接收数据
+    public void receiveData(String data){
+        Log.d("MyFragment","Received data:" + data);
+    }
+}
+```
+
+###### Activity 实现接口
+``` java
+public class MyActivity extends AppCompatActivity implements MyFragment.OnDataPassListener {
+    @override
+    public void onDataPass(string data){
+        // 接收到Fragment传来的数据
+        Log.d("MyActivity", "Data from Fragment:"+ data);
+    }
+
+    // 通过Fragment实例调用公共方法传数据给Fragment
+    public void sendDataToFragment(){
+        MyFragment fragment = (MyFragment) getSupportFragmentManager().findFragmentById(R.id.my_fragment);
+        if(fragment != null) {
+            fragment.receiveData("Hello Fragment");
+        }
+    }
+}
+```
+
+#### 通过Bundle传递参数(Activity -> Fragment)
+- Activity 创建Fragment时，通过`setArguments(Bundle)`传递初始化参数
+- Fragment 在 `onCreate()`或`onCreateView`中通过`getArguments()`获取。
+
+##### 代码示例
+###### Activity里创建Fragment并传递参数
+``` java
+public class MyActivity extends AppCompatAcitivity{
+    @override
+    protected void onCreate(Bundle savedInstanceState){
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        //创建Bundle, 放入要传递的参数
+        Bundle bundle = new Bundle();
+        bundle.putString("key1","value1");
+
+        //创建 Fragment实例
+        MyFragment fragment = new MyFragment();
+
+        //将Bundle设置给Fragment
+        fragment.setArguments(bundle);
+
+        // 将Fragment添加到Activity布局中
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.fragment_container,fragment)
+                .commit();
+    }
+}
+```
+
+###### Fragment里接收参数
+``` java
+public class MyFragment extents Fragment {
+    private string receivedData;
+
+    @override
+    public void onCreate(Bundle savedInstanceState){
+        super.onCreate(savedInstanceState);
+
+        // 获取传递的参数
+        Bundle argument = getArgument();
+        if(argument != null){
+            receivedData = arguments.getString("key1");
+        }
+    }
+
+    @Nullable
+    @override
+    public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState){
+        View view = inflater.inflate(R.layout.my_fragment, container, false);
+
+        //假设用一个TextView显示传来的数据
+        TextView textview = view.findViewById(R.id.text_view);
+        textview.setText(receivedData);
+
+        return view;
+    }
+}
+```
+
+#### 通过ViewModel (推荐用于Jetpack架构)
+- 使用`ViewModel`和`LiveData`, Activity和Fragment共享同一个ViewModel
+- 双方通过观察`LiveData`实现数据通信，解耦且生命周期安全。
+
+#### 通过EventBus
+- 使用第三方事件总线库(如greenrobot的EventBus) 进行发布订阅通信
+- 适合多个组件间解耦通信。
+
+## 内存抖动
+内存抖动是指程序运行时频繁创建和销毁对象，导致垃圾回收频繁触发，从而影响性能和用户体验的现象。
+
+### 举例说明
+``` java
+@override
+public void onDraw(Canvas canvas){
+    Paint paint = new Paint();
+    canvas.drawCircle(50, 50, 20, paint);
+}
+```
+
+`onDraw`方法非常频繁调用，每次都创建新的`Paint`对象，导致大量临时对象产生，很快就被回收，频繁触发GC，导致内存抖动。
+
+### 带来的问题
+- 性能下降：GC是重量级操作，会暂停应用线程执行，影响流畅度
+- 卡顿和掉帧：用户界面响应变慢，动画不连贯。
+
+### 如何减少内存抖动
+1. 复用对象
+避免在频繁调用的方法中创建临时对象，比如把`Paint`对象声明成成员变量，重复使用
+
+2. 使用对象池
+对于需要频繁创建的对象，可以用对象池技术复用对象。
+
+3. 避免不必要的
+尽量使用基本类型，避免自动装箱带来的频繁对象创建
+
+4. 优化数据结构
+使用合适的数据结构，减少临时对象的创建
+
+5. 使用性能分析工具
+利用Android Studio 的 Profiler、Heap Dump等工具定位内存抖动的热点代码
+
+## 内存优化
+内存优化是提升应用性能、避免内存泄漏和卡顿的重要环节。常用以下优化方式：
+
+### 1. 避免内存泄漏
+内存泄漏指应用不再使用的对象仍被引用，导致垃圾回收器无法回收，长时间累积会导致内存溢出。
+
+#### 常见场景
+- Activity 或 Fragment 被静态变量持有
+- Handler、Runnable、TimerTask 持有外部类引用
+- 资源未及时关闭（Cursor、Stream、Bitmap等）
+- 监听器、BroadcastReceiver未注销
+
+#### 优化措施
+- 避免使用静态变量持有 Context，尤其是 Activity Context，尽量用 Application Context。
+- Handler 使用静态内部类 + 弱引用持有外部类，防止隐式引用导致泄漏。
+- 及时注销监听器、广播接收器。
+- 使用 LeakCanary 等工具检测内存泄漏。
+
+### 2. 减少内存分配与对象创建
+频繁创建大量对象会导致频繁GC，影响性能。
+
+#### 优化措施
+- 重用对象，避免在循环或频繁调用中创建临时对象。
+- 使用对象池（如 RecyclerView 的 ViewHolder 机制）。
+- 使用基本类型数组代替包装类型数组（避免自动装箱）。
+- 避免在绘制或动画中频繁创建对象。
+
+### 3. 优化Bitmap使用
+Bitmap(位图)是安卓中内存占用较大的资源。
+
+#### 优化措施
+- 使用`BitmapFactory.Options.inSampleSize`按需缩放图片，避免加载过大图片
+- 使用`Bitmap.recycle()`及时释放不再使用的Bitmap
+- 使用`LruCache`缓存Bitmap，避免重复加载
+- 使用矢量图代替部分位图
+- 使用Glide、Picasso等图片加载库，自动管理内存和缓存
+
+### 4. 优化布局和视图层级
+复杂布局和深层次的View层级会增加内存和绘制负担。
+
+#### 优化措施
+- 减少布局嵌套，使用`ConstraintLayout、RelativeLayout`替代多层`LinearLayout`
+- 使用`ViewStub`延迟加载不立即需要的布局。
+- 使用合适的布局宽高参数，避免过度测量
+- 使用`RecycleView`替代`ListView`,提高视图复用效率
+
+### 5. 使用合适的数据结构
+
+#### 优化措施
+- 使用`SparseArray`、`SparseBooleanArray`替代`HashMap<Integer, Object>`，节省内存。
+- 选择合适的数据类型，避免装箱拆箱带来的额外开销。
+
+### 6. 管理线程和异步任务
+线程过多或未正确关闭会导致内存泄漏和资源浪费
+
+#### 优化措施
+- 使用线程池管理线程，避免频繁创建销毁
+- 及时取消和释放异步任务
+- 使用`AsyncTask`时，注意生命周期绑定，避免持有Activity导致泄漏
+> AsyncTask 是 Android 平台提供的一个用于简化异步操作的类。它帮助开发者在后台线程执行耗时任务，同时方便地在主线程（UI线程）更新界面，避免了直接操作线程和 Handler 的复杂性。
+> 如果在 Activity 中直接创建 AsyncTask（非静态内部类）, 当 AsyncTask 执行时间较长，Activity 已经被用户关闭（比如按返回键退出），但 AsyncTask 仍在后台执行。由于 AsyncTask 持有 Activity 引用，导致 Activity 无法被垃圾回收，造成内存泄漏。
+
+### 7. ProGuard / R8 混淆和优化
+### 8. 使用内存分析工具
+- Android Profiler：Android Studio 自带的内存分析工具，实时监控内存分配和GC。
+- LeakCanary：开源的内存泄漏检测库，自动检测并定位泄漏。
+
+## 性能优化
+1. 避免主线程阻塞
+- 主线程负责界面绘制和用户交互，避免执行耗时操作（如网络请求、数据库查询、复杂计算）。
+- 使用异步任务（`AsyncTask`、`Thread`、`HandlerThread`、`RxJava`、`Coroutine`等）处理耗时操作。
+
+2. 优化布局和绘制
+- 减少布局层级，避免过深的视图树（使用ConstraintLayout、合并布局）
+- 使用ViewStub延迟加载不必要的视图。
+
+3. 合理使用缓存
+- 图片缓存（内存缓存和磁盘缓存），避免重复加载和解码图片。
+- 数据缓存，减少网络请求次数。
+
+4. 减少内存分配和垃圾回收
+- 避免频繁创建临时对象，尤其是在绘制和滚动过程中。
+- 使用对象池（如RecyclerView的ViewHolder机制）重用对象。
+- 避免内存泄漏，及时释放资源。
+
+5. 优化线程和并发
+- 合理使用线程池，避免过多线程导致上下文切换开销。
+- 使用高效的并发框架
+
+6. 使用硬件加速和合适的动画
+- 开启硬件加速，提升渲染效率。
+- 优化动画，避免复杂动画造成卡顿。
+
+7. 网络请求优化
+减少请求次数，使用合适的请求方式（如HTTP/2、压缩）
+
+8. 数据库优化
+- 使用索引，加快查询速度。
+- 避免主线程访问数据库。
+
+9. 使用性能分析工具
+`Android Profiler`、`Systrace`、`LeakCanary`、`StrictMode`等工具定位性能瓶颈和内存泄漏。

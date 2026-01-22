@@ -286,16 +286,16 @@ aapt2(Android Asset Packaging Tool 2)
     - Kotlin 代码通过 Kotlin 编译器编译成 .class 文件
 - 将所有编译生成的 .class 文件（包括应用代码和第三方库的 .class 文件）汇集到一个统一的输入目录或列表中
 
-4. 字节码转换阶段
+4. 代码优化阶段
+- ProGuard /R8 混淆和优化
+    - 混淆类名、方法名、减小代码体积
+    - 删除未使用的代码和资源
+
+5. 字节码转换阶段
 - Dex 转换
     - 使用`D8`或`dx`工具将`.class`文件转换成`Dalvik`可执行格式`.dex`文件
 - 多Dex 支持
     对于方法数超过限制的应用，启用`MultiDex`支持
-
-5. 代码优化阶段
-- ProGuard /R8 混淆和优化
-    - 混淆类名、方法名、减小代码体积
-    - 删除未使用的代码和资源
 
 6. 打包阶段
 - aapt2打包
@@ -317,3 +317,57 @@ APK签名
 zipalign  
     对APK文件进行字节对齐优化
     提高运行时读取效率，减少内存消耗
+
+## `.gitlab-ci.yml`
+`.gitlab-ci.yml`是 Gitlab CI/CD的配置文件，放在项目根目录，定义了Gitlab Runner执行的流水线流程。
+
+`.gitlab-ci.yml`用于定义Gitlab CI/CD的流水线任务(Jobs)、阶段(Stages)、触发条件、环境变量等。
+
+### 工作原理
+1. 代码推送
+每次向Gitlab远程仓库提交代码，Gitlab会检测项目根目录是否存在`.gitlab-ci.yml`文件
+
+2. Gitlab解析`.gitlab-ci.yml`
+Gitlab根据该文件的内容，生成对应的流水线，包含多个阶段和任务。
+
+3. Gitlab Runner执行任务
+Gitlab Runner会拉取代码， 执行`.gitlab-ci.yml`中定义的每个Job脚本，比如构建、测试、打包、发布等。
+
+4. 反馈执行结果
+执行完成后，GitLab 会在 Web 界面显示流水线状态（成功、失败），并可触发后续动作（通知、部署等）。
+
+### 结构示例
+
+``` yml
+stages:
+  - build
+  - test
+  - deploy
+
+build_job:
+  stage: build
+  script:
+    - ./gradlew assembleDebug
+
+test_job:
+  stage: test
+  script:
+    - ./gradlew test
+
+deploy_job:
+  stage: deploy
+  script:
+    - ./deploy.sh
+  only:
+    - main
+```
+
+- stages: 定义流水线的阶段顺序
+    - 是一个数组，列出流水线中所有阶段的名字，执行顺序就是数组里定义的名字
+    - 这里定义的三个阶段，流水线会先执行`build`阶段的所有任务，全部完成后再执行`test`，最后是`deploy`
+- build_job：是一个任务(Job)的名字，可以自定义
+    - 每个 Job 都是流水线中具体执行的单元，比如编译代码、跑测试、部署应用等。
+- stage: build：指定当前Job属于哪个阶段
+    - 这里`stage: build`表示`build_job`属于`build`阶段
+- script: 定义了这个Job具体要执行的命令列表
+    - Runner执行这个Job时，依次执行`script`中的命令
